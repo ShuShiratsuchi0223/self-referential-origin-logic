@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+捻れ回転状態が常時存在する前提: 特別な rotate() を呼ばずに、
+(±1, ±1) 文脈 + (0,0) 原点の動的均衡モデルを表す。
+
+- FourContext: 文脈
+- ExistenceParticle: 粒子(意識状態)
+- HomeostaticEngine: システム全体
+   -> step(context_label) で背理法や自己否定を発動し、
+      全体が (0,0) 付近でバランスするかを measure_balance() で確認
+"""
+
+import math
+import cmath
+import random
+from typing import List
+
+
+# ================================================================
+# 1. FourContext (文脈)
+# ---------------------------------------------------------------
+class FourContext:
+    """
+    (±1, ±1) を文脈として保持。
+    例: 
+      label="IdealFuture", context_point=1+1j
+      label="AntiIdealPast", context_point=-1-1j
+      ...
+    """
+
+    def __init__(self, label: str, context_point: complex):
+        self.label = label
+        self.context_point = context_point
+
+    def __repr__(self):
+        return f"FourContext({self.label}, {self.context_point})"
+
+
+# ================================================================
+# 2. ExistenceParticle (粒子: 意識状態)
+# ---------------------------------------------------------------
+class ExistenceParticle:
+    """
+    z: complex
+      - 原点(0,0)付近 = 無底の否定(背理法空間)
+      - (±1, ±1) 文脈に適応しようとするか、背理法であえて反転するか
+    """
+
+    def __init__(self, z: complex = 0+0j):
+        self.z = z
+
+    def distance_from_origin(self) -> float:
+        return abs(self.z)
+
+    def random_small_offset(self, scale: float = 1e-2):
+        """
+        初期生成時に原点から微小ズレを与える
+        """
+        dx = (random.random() * 2 - 1) * scale
+        dy = (random.random() * 2 - 1) * scale
+        self.z += complex(dx, dy)
+
+    def negation_pull_to_origin(self, rate: float = 0.3):
+        """
+        自己否定: (0,0) に向けて z を縮小する
+        """
+        self.z *= (1.0 - rate)
+
+    def invert_real(self):
+        """
+        古典背理法: 実部のみ反転
+        """
+        r, i = self.z.real, self.z.imag
+        self.z = complex(-r, i)
+
+    def adjust_to_context(self, context: 'FourContext'):
+        """
+        文脈との整合を図る + (0,0)へのバランスを取る。
+
+        - 例: 
+           1) context_point の実部と粒子 z の実部の符号が違う場合、
+              invert_real() するかどうかをランダム決定
+           2) negation_pull_to_origin() で (0,0) 側に若干戻す
+        """
+        cp = context.context_point
+        if (cp.real * self.z.real) < 0:
+            # 文脈の実部と逆符号 => 背理法発動?
+            # (確率で発動してもいいし、常に発動でもOK)
+            if random.random() < 0.5:
+                self.invert_real()
+
+        # さらに原点へ寄せる
+        self.negation_pull_to_origin(rate=0.1)
+
+    def __repr__(self):
+        return f"ExistenceParticle(z={self.z:.5f})"
+
+
+# ================================================================
+# 3. HomeostaticEngine
+# ---------------------------------------------------------------
+class HomeostaticEngine:
+    """
+    回転(rotate) を省略し、常に捻れ状態が前提とされる。
+
+    - FourContext: (±1, ±1) の文脈
+    - ExistenceParticle: z
+    - step(context_label): 粒子ごとに adjust_to_context() を呼び、
+      背理法(invert_real)や negation_pull() を適宜行う。
+    - measure_balance(): 文脈と原点の両方とバランスしている度合いを測る。
+    """
+
+    def __init__(self, n_particles: int = 2):
+        self.contexts: List[FourContext] = [
+            FourContext("IdealFuture",    1+1j),
+            FourContext("AntiIdealPast",  -1-1j),
+            FourContext("SubjectiveNow",  -1+1j),
+            FourContext("ObjectiveNow",   1-1j),
+        ]
+        self.particles: List[ExistenceParticle] = []
+
+        # 粒子初期化
+        for _ in range(n_particles):
+            p = ExistenceParticle(0+0j)
+            p.random_small_offset(scale=1e-2)
+            self.particles.append(p)
+
+    def step(self, context_label: str):
+        """
+        文脈 label を選択し、粒子たちが adjust_to_context() する。
+        回転操作は行わず、背理法と自己否定(negation_pull)のみ。
+        """
+        ctx = None
+        for c in self.contexts:
+            if c.label == context_label:
+                ctx = c
+                break
+        if ctx is None:
+            print(f"Warning: no context found for label={context_label}")
+            return
+
+        # 粒子それぞれが文脈に対し調整
+        for p in self.particles:
+            p.adjust_to_context(ctx)
+
+    def measure_balance(self) -> float:
+        """
+        文脈(±1, ±1) と原点(0,0) へのバランス評価。
+        - 原点への距離が小さいほど高評価
+        - どの文脈とも実部が矛盾しすぎないほど高評価
+        """
+        if not self.particles:
+            return 0.0
+
+        total_score = 0.0
+        for p in self.particles:
+            dist0 = p.distance_from_origin()
+            # 原点に近いほど => origin_score が大
+            origin_score = 1.0/(1.0 + dist0)
+
+            # 文脈への整合度: 4つの文脈との実部の符号が大きく食い違わないほど良い
+            # 例: real(cp)*real(p.z) > 0 なら整合度 1.0, <= 0 なら 0.0
+            # ここで各文脈との average を計算
+            sum_c = 0.0
+            for c in self.contexts:
+                if (c.context_point.real * p.z.real) > 0:
+                    sum_c += 1.0
+            # sum_c in [0..4]
+            ctx_score = sum_c / 4.0
+
+            # 単純に平均を粒子スコアとする
+            part_score = 0.5 * (origin_score + ctx_score)
+            total_score += part_score
+
+        return total_score / len(self.particles)
+
+    def __repr__(self):
+        return (f"HomeostaticEngine:\n"
+                f"  contexts={self.contexts}\n"
+                f"  particles={self.particles}\n")
+
+
+# ================================================================
+# 4. メイン: テストデモ
+# ---------------------------------------------------------------
+if __name__ == "__main__":
+    random.seed(42)
+
+    engine = HomeostaticEngine(n_particles=3)
+
+    print("=== Initial State ===")
+    print(engine)
+    print("Initial balance =", engine.measure_balance())
+    print("======================================\n")
+
+    context_sequence = [
+        "IdealFuture", "AntiIdealPast", "SubjectiveNow",
+        "ObjectiveNow", "SubjectiveNow", "IdealFuture"
+    ]
+
+    for i, c_label in enumerate(context_sequence):
+        print(f"[Step {i}] Context={c_label}")
+        engine.step(c_label)
+        score = engine.measure_balance()
+        print("Particles:", engine.particles)
+        print(f"Balance => {score:.4f}")
+        print("--------------------------------------")
